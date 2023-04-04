@@ -96,9 +96,12 @@ function App() {
         }
 
         try {
-            const signer = await web3ModalRef.current.connect();
+            const provider = await web3ModalRef.current.connect();
+            const signer = new ethers.providers.Web3Provider(provider).getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
-            await contract.signDocument(documentHash);
+            // Преобразование строки хеша в массив байтов
+            const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
+            await contract.signDocument(documentHashBytes);
             setStatusMessage("Документ успешно подписан.");
         } catch (error) {
             console.error("Ошибка при подписании документа:", error);
