@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, {useEffect, useRef, useState} from "react";
 import Web3Modal from "web3modal";
-import { ethers } from "ethers";
-import { abi, CONTRACT_ADDRESS } from "/constants/index.js";
+import {ethers} from "ethers";
+import {abi, CONTRACT_ADDRESS} from "/constants/index.js";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import CryptoJS from "crypto-js";
 
@@ -9,8 +9,6 @@ import CryptoJS from "crypto-js";
 function App() {
     const [walletConnected, setWalletConnected] = useState(false);
     const web3ModalRef = useRef();
-
-
 
     useEffect(() => {
         if (!walletConnected) {
@@ -71,20 +69,23 @@ function App() {
     };
 
     const addDocument = async () => {
-        if (!documentHash) {
-            setStatusMessage("Пожалуйста, загрузите файл для вычисления хеша.");
+        if (!documentHash || !signersInput) {
+            setStatusMessage("Ошибка: заполните все поля.");
             return;
         }
-        const signers = signersInput.split(",").map((address) => address.trim());
 
         try {
-            const signer = await web3ModalRef.current.connect();
+            const provider = await web3ModalRef.current.connect();
+            const signer = new ethers.providers.Web3Provider(provider).getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
-            await contract.addDocument(documentHash, signers);
+            const signersArray = signersInput.split(",").map((address) => address.trim());
+            const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
+            await contract.addDocument(documentHashBytes, signersArray);
+            console.log("Документ успешно добавлен.");
             setStatusMessage("Документ успешно добавлен.");
         } catch (error) {
             console.error("Ошибка при добавлении документа:", error);
-            setStatusMessage("Ошибка при добавлении документа.");
+            setStatusMessage("Ошибка при добавлении документа");
         }
     };
 
