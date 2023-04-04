@@ -116,9 +116,14 @@ function App() {
         }
 
         try {
-            const provider = await web3ModalRef.current.connect();
-            const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
-            const [signers, signedStatus] = await contract.getSignersStatus(documentHash);
+            const provider = new ethers.providers.Web3Provider(await web3ModalRef.current.connect());
+            const signer = provider.getSigner(); // Получаем signer из provider
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer); // Используем signer вместо provider
+
+            // Преобразование строки хеша в массив байтов
+            const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
+
+            const [signers, signedStatus] = await contract.getSignersStatus(documentHashBytes);
             console.log("Список подписантов:", signers);
             console.log("Статус подписи:", signedStatus);
 
