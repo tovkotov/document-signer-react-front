@@ -1,86 +1,192 @@
-import Head from 'next/head'
-import {Inter} from 'next/font/google'
-import styles from '@/styles/Home.module.css'
-import {useEffect, useRef, useState} from "react";
-import Web3Modal from 'web3modal';
+import React, { useEffect, useRef, useState } from "react";
+import Web3Modal from "web3modal";
+import { ethers } from "ethers";
+import { abi, CONTRACT_ADDRESS } from "/constants/index.js";
+import 'bootstrap/dist/css/bootstrap.min.css';
+import CryptoJS from "crypto-js";
 
 
-const inter = Inter({subsets: ['latin']})
-
-export default function Home() {
+function App() {
     const [walletConnected, setWalletConnected] = useState(false);
     const web3ModalRef = useRef();
 
-    const getProviderOrSigner = async (needSigner = false) => {
-        const provider = await web3ModalRef.current.connect();
-        const web3Provider = new ethers.providers.Web3Provider(provider);
-        const {chainId} = await web3Provider.getNetwork();
-        if (chainId != 97) {
-            window.alert("Change to BNBchain test Net");
-        }
-        if (needSigner) {
-            const signer = web3Provider.getSigner();
-            return signer;
-        }
-        return web3Provider;
-    }
 
-    const connectWallet = async () => {
-        try {
-            await getProviderOrSigner();
-            setWalletConnected(true);
-        } catch (error) {
-            console.log(error)
-        }
-    }
-
-    const renderButton = () => {
-        if (walletConnected) {
-            return (
-                <div>
-                    <h4>Success</h4>
-                    <button className={styles.button}>PressMeButton</button>
-                </div>
-            )
-        }
-    }
 
     useEffect(() => {
         if (!walletConnected) {
             web3ModalRef.current = new Web3Modal({
                 network: 97,
                 providerOptions: {},
-                disableInjectedProvider: false
-            })
+                disableInjectedProvider: false,
+            });
         }
     }, [walletConnected]);
 
+    const connectWallet = async () => {
+        try {
+            const provider = await web3ModalRef.current.connect();
+            const web3Provider = new ethers.providers.Web3Provider(provider);
+            setWalletConnected(true);
+        } catch (error) {
+            console.log(error);
+        }
+    };
+
+    const [file, setFile] = useState(null);
+    const [documentHash, setDocumentHash] = useState(null);
+    const [signersInput, setSignersInput] = useState("");
+    const [statusMessage, setStatusMessage] = useState("");
+
+
+    useEffect(() => {
+        if (file) {
+            calculateDocumentHash(file).then((hash) => {
+                setDocumentHash(hash);
+            });
+        }
+    }, [file]);
+
+    const handleFileChange = (e) => {
+        setFile(e.target.files[0]);
+    };
+
+    const handleSignersInputChange = (e) => {
+        setSignersInput(e.target.value);
+    };
+
+    const calculateDocumentHash = async (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const arrayBuffer = event.target.result;
+                const wordArray = CryptoJS.lib.WordArray.create(arrayBuffer);
+                const hash = CryptoJS.SHA256(wordArray).toString(CryptoJS.enc.Hex);
+                resolve(hash);
+            };
+            reader.onerror = (error) => {
+                reject(error);
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    };
+
+    const addDocument = async () => {
+        if (!documentHash) {
+            setStatusMessage("Пожалуйста, загрузите файл для вычисления хеша.");
+            return;
+        }
+        const signers = signersInput.split(",").map((address) => address.trim());
+
+        try {
+            const signer = await web3ModalRef.current.connect();
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+            await contract.addDocument(documentHash, signers);
+            setStatusMessage("Документ успешно добавлен.");
+        } catch (error) {
+            console.error("Ошибка при добавлении документа:", error);
+            setStatusMessage("Ошибка при добавлении документа.");
+        }
+    };
+
+    const signDocument = async () => {
+        if (!documentHash) {
+            setStatusMessage("Пожалуйста, загрузите файл для вычисления хеша.");
+            return;
+        }
+
+        try {
+            const signer = await web3ModalRef.current.connect();
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+            await contract.signDocument(documentHash);
+            setStatusMessage("Документ успешно подписан.");
+        } catch (error) {
+            console.error("Ошибка при подписании документа:", error);
+            setStatusMessage("Ошибка при подписании документа.");
+        }
+    };
+
+    const getSignersStatus = async () => {
+        if (!documentHash) {
+            setStatusMessage("Пожалуйста, загрузите файл для вычисления хеша.");
+            return;
+        }
+
+        try {
+            const provider = await web3ModalRef.current.connect();
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
+            const [signers, signedStatus] = await contract.getSignersStatus(documentHash);
+            console.log("Список подписантов:", signers);
+            console.log("Статус подписи:", signedStatus);
+
+            const signersStatus = signers.map((signer, index) => {
+                return `${signer}: ${signedStatus[index] ? "Подписан" : "Не подписан"}`;
+            });
+            setStatusMessage(`Статус подписантов:\n${signersStatus.join("\n")}`);
+        } catch (error) {
+            console.error("Ошибка при получении статуса подписантов:", error);
+            setStatusMessage("Ошибка при получении статуса подписантов.");
+        }
+    };
 
     return (
-        <>
-            <Head>
-                <title>ANANAS SYSTEM LTD.</title>
-                <meta name="description" content="Generated by create next app"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1"/>
-                <link rel="icon" href="/favicon.ico"/>
-            </Head>
-            <main className={styles.main}>
-                <div className={styles.description}>
-                    <p>
-                        Ananas Document Signer
-                    </p>
-                    <div>
-                        <button onClick={connectWallet} className={styles.button}>
-                            {!walletConnected ? "Connect Wallet" : "disconnect"}
+        <div className="container">
+            <h1 className="my-4 text-center">Document Signer</h1>
+            {!walletConnected && (
+                <button
+                    className="btn btn-primary"
+                    onClick={connectWallet}
+                >
+                    Подключить кошелек
+                </button>
+            )}
+            {walletConnected && (
+                <div className="card">
+                    <div className="card-body">
+                        <div className="mb-3">
+                            <label className="form-label">Выберите файл</label>
+                            <input
+                                className="form-control"
+                                type="file"
+                                onChange={handleFileChange}
+                            />
+                            <p>Хеш файла: {documentHash}</p>
+                        </div>
+                        <div className="mb-3">
+                            <label className="form-label">
+                                Введите адреса подписантов, разделенные запятыми
+                            </label>
+                            <input
+                                className="form-control"
+                                type="text"
+                                value={signersInput}
+                                onChange={handleSignersInputChange}
+                                placeholder="Введите адреса подписантов, разделенные запятыми"
+                            />
+                        </div>
+                        <button
+                            className="btn btn-primary me-2"
+                            onClick={addDocument}
+                        >
+                            Добавить документ
                         </button>
+                        <button
+                            className="btn btn-primary me-2"
+                            onClick={signDocument}
+                        >
+                            Подписать документ
+                        </button>
+                        <button
+                            className="btn btn-primary"
+                            onClick={getSignersStatus}
+                        >
+                            Получить статус подписантов
+                        </button>
+                        <p className="mt-3">{statusMessage}</p>
                     </div>
                 </div>
-                <div>
-                    {renderButton()}
-                    <p>You can sign doc</p>
-                </div>
-
-            </main>
-        </>
-    )
+            )}
+        </div>
+    );
 }
+
+export default App;
