@@ -18,9 +18,7 @@ function App() {
     const [isFileInBlockchain, setIsFileInBlockchain] = useState(false);
     const [disableSaveButton, setDisableSaveButton] = useState(true);
 
-    const dropboxClient = new Dropbox(
-        { accessToken: process.env.REACT_APP_DROPBOX_ACCESS_TOKEN
-        });
+    const dropboxClient = new Dropbox({accessToken: process.env.NEXT_PUBLIC_DROPBOX_ACCESS_TOKEN,});
 
     useEffect(() => {
         if (!walletConnected) {
@@ -69,7 +67,6 @@ function App() {
                     const fileBuffer = fileReader.result;
                     const path = `/${file.name}`;
                     const response = await dropboxClient.filesUpload({ path, contents: fileBuffer });
-                    console.log(response.result.path_lower);
                     const sharedLink = await dropboxClient.sharingCreateSharedLinkWithSettings({ path: response.result.path_lower });
                     setFileUrl(sharedLink.result.url);
                     console.log("Файл успешно загружен на Dropbox:", sharedLink.result.url);
