@@ -1,0 +1,15 @@
+.custom-button {
+    background-color: #4a86e8;
+    border-color: #4a86e8;
+    transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+}
+
+.custom-button:hover {
+    background-color: #3d6fd5;
+    border-color: #3d6fd5;
+}
+
+.custom-card {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+}

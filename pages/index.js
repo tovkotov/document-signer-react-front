@@ -4,11 +4,23 @@ import {ethers} from "ethers";
 import {abi, CONTRACT_ADDRESS} from "/constants/index.js";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import CryptoJS from "crypto-js";
-
+import { Dropbox } from "dropbox";
 
 function App() {
     const [walletConnected, setWalletConnected] = useState(false);
     const web3ModalRef = useRef();
+    const [file, setFile] = useState(null);
+    const [documentHash, setDocumentHash] = useState(null);
+    const [signersInput, setSignersInput] = useState("");
+    const [statusMessage, setStatusMessage] = useState("");
+    const [fileUrl, setFileUrl] = useState("");
+    const [signersInputDisabled, setSignersInputDisabled] = useState(true);
+    const [isFileInBlockchain, setIsFileInBlockchain] = useState(false);
+    const [disableSaveButton, setDisableSaveButton] = useState(true);
+
+    const dropboxClient = new Dropbox(
+        { accessToken: process.env.REACT_APP_DROPBOX_ACCESS_TOKEN
+        });
 
     useEffect(() => {
         if (!walletConnected) {
@@ -20,6 +32,13 @@ function App() {
         }
     }, [walletConnected]);
 
+    useEffect(() => {
+        if (isFileInBlockchain !== null && documentHash) {
+            setDisableSaveButton(isFileInBlockchain);
+        }
+    }, [isFileInBlockchain, documentHash]);
+
+
     const connectWallet = async () => {
         try {
             const provider = await web3ModalRef.current.connect();
@@ -30,22 +49,60 @@ function App() {
         }
     };
 
-    const [file, setFile] = useState(null);
-    const [documentHash, setDocumentHash] = useState(null);
-    const [signersInput, setSignersInput] = useState("");
-    const [statusMessage, setStatusMessage] = useState("");
-
-
     useEffect(() => {
         if (file) {
-            calculateDocumentHash(file).then((hash) => {
+            calculateDocumentHash(file).then(async (hash) => {
                 setDocumentHash(hash);
+                await getSignersStatus();
             });
         }
     }, [file]);
 
-    const handleFileChange = (e) => {
-        setFile(e.target.files[0]);
+    const handleFileChange = async (e) => {
+        const file = e.target.files[0];
+
+        if (file) {
+            try {
+                setFile(file);
+                const fileReader = new FileReader();
+                fileReader.onloadend = async () => {
+                    const fileBuffer = fileReader.result;
+                    const path = `/${file.name}`;
+                    const response = await dropboxClient.filesUpload({ path, contents: fileBuffer });
+                    console.log(response.result.path_lower);
+                    const sharedLink = await dropboxClient.sharingCreateSharedLinkWithSettings({ path: response.result.path_lower });
+                    setFileUrl(sharedLink.result.url);
+                    console.log("Файл успешно загружен на Dropbox:", sharedLink.result.url);
+                };
+                fileReader.readAsArrayBuffer(file);
+
+                const hash = await calculateDocumentHash(file);
+                setDocumentHash(hash);
+
+                const provider = new ethers.providers.Web3Provider(await web3ModalRef.current.connect());
+                const signer = provider.getSigner();
+                const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+
+                const documentHashBytes = ethers.utils.arrayify("0x" + hash);
+                const [signers, signedStatus] = await contract.getSignersStatus(documentHashBytes);
+
+                if (signers.length > 0) {
+                    setSignersInput(signers.join(', '));
+                    setSignersInputDisabled(true);
+
+                    const signersStatus = signers.map((signer, index) => {
+                        return `${signer}: ${signedStatus[index] ? "Подписан" : "Не подписан"}`;
+                    });
+                    setStatusMessage(`Статус подписантов:\n${signersStatus.join("\n")}`);
+                } else {
+                    setSignersInput('');
+                    setSignersInputDisabled(false);
+                    setStatusMessage('');
+                }
+            } catch (error) {
+                console.error("Ошибка при загрузке файла на Dropbox или проверке блокчейна:", error);
+            }
+        }
     };
 
     const handleSignersInputChange = (e) => {
@@ -68,7 +125,7 @@ function App() {
         });
     };
 
-    const addDocument = async () => {
+    const saveDocument = async () => {
         if (!documentHash || !signersInput) {
             setStatusMessage("Ошибка: заполните все поля.");
             return;
@@ -131,6 +188,11 @@ function App() {
                 return `${signer}: ${signedStatus[index] ? "Подписан" : "Не подписан"}`;
             });
             setStatusMessage(`Статус подписантов:\n${signersStatus.join("\n")}`);
+            if (signers.length > 0) {
+                setIsFileInBlockchain(true);
+            } else {
+                setIsFileInBlockchain(false);
+            }
         } catch (error) {
             console.error("Ошибка при получении статуса подписантов:", error);
             setStatusMessage("Ошибка при получении статуса подписантов.");
@@ -142,14 +204,14 @@ function App() {
             <h1 className="my-4 text-center">Document Signer</h1>
             {!walletConnected && (
                 <button
-                    className="btn btn-primary"
+                    className="btn btn-primary custom-button"
                     onClick={connectWallet}
                 >
                     Подключить кошелек
                 </button>
             )}
             {walletConnected && (
-                <div className="card">
+                <div className="card custom-card">
                     <div className="card-body">
                         <div className="mb-3">
                             <label className="form-label">Выберите файл</label>
@@ -159,6 +221,15 @@ function App() {
                                 onChange={handleFileChange}
                             />
                             <p>Хеш файла: {documentHash}</p>
+                            {fileUrl && (
+                                <p>
+                                    Ссылка на файл в Dropbox:{" "}
+                                    <a href={fileUrl} target="_blank" rel="noopener noreferrer">
+                                        {fileUrl}
+                                    </a>
+                                </p>
+                            )}
+
                         </div>
                         <div className="mb-3">
                             <label className="form-label">
@@ -170,25 +241,21 @@ function App() {
                                 value={signersInput}
                                 onChange={handleSignersInputChange}
                                 placeholder="Введите адреса подписантов, разделенные запятыми"
+                                disabled={!isFileInBlockchain && !documentHash}
                             />
                         </div>
                         <button
-                            className="btn btn-primary me-2"
-                            onClick={addDocument}
+                            className="btn btn-primary custom-button me-2"
+                            onClick={saveDocument}
+                            disabled={disableSaveButton}
                         >
-                            Добавить документ
+                            Сохранить
                         </button>
                         <button
-                            className="btn btn-primary me-2"
+                            className="btn btn-primary custom-button me-2"
                             onClick={signDocument}
                         >
                             Подписать документ
-                        </button>
-                        <button
-                            className="btn btn-primary"
-                            onClick={getSignersStatus}
-                        >
-                            Получить статус подписантов
                         </button>
                         <p className="mt-3">{statusMessage}</p>
                     </div>
