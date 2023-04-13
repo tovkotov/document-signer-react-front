@@ -17,11 +17,11 @@ export default async function handler(req, res) {
             process.env.NEXT_PUBLIC_DROPBOX_CALLBACK_URL,
             code
         );
-
         const accessToken = result.access_token;
-        // Здесь вы можете сохранить токен доступа в базу данных или сессию
         res.status(200).json({ success: true, accessToken });
     } catch (error) {
-        res.status(400).json({ error: 'Error fetching access token' });
+        // Добавьте здесь логирование ошибки, чтобы увидеть подробную информацию
+        console.error('Error fetching access token:', error);
+        res.status(400).json({ error: 'Error fetching access token', errorDetails: error.message });
     }
 }

@@ -1,11 +1,10 @@
-import React, {useEffect, useMemo, useRef, useState} from "react";
+import React, {useEffect, useRef, useState} from "react";
 import Web3Modal from "web3modal";
 import {ethers} from "ethers";
 import {abi, CONTRACT_ADDRESS} from "/constants/index.js";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import CryptoJS from "crypto-js";
-import { Dropbox } from "dropbox";
-import * as app from "react";
+import {Dropbox} from "dropbox";
 
 function App() {
     const [walletConnected, setWalletConnected] = useState(false);
@@ -21,14 +20,7 @@ function App() {
     const [accessToken, setAccessToken] = useState('');
     const [dropboxAccessToken, setDropboxAccessToken] = useState(null);
 
-
-    const dropboxClient = useMemo(() => {
-        if (accessToken) {
-            return new Dropbox({ accessToken });
-        } else {
-            return null;
-        }
-    }, [accessToken]);
+    // const dropboxClient = new Dropbox({accessToken: dropboxAccessToken});
 
     useEffect(() => {
         if (!walletConnected) {
@@ -85,26 +77,25 @@ function App() {
                 const response = await fetch("/api/dropboxAuth?code=" + encodeURIComponent(code));
                 const data = await response.json();
 
-                console.log("=====")
-                console.log(data);
-
                 if (data.error) {
+                    console.log("-----")
+                    console.log(data);
                     console.error("Упс: ", data.error, data.error_description);
                 } else {
+                    console.log("===")
                     setDropboxAccessToken(data.access_token);
                 }
             } catch (error) {
                 console.error("Ошибка при обработке ответа Dropbox OAuth:", error);
+                console.error("Подробности об ошибке:", error.message, error.stack);
             }
         }
     };
 
     useEffect(() => {
-        async function handleResponse() {
+        (async () => {
             await handleDropboxOAuthResponse();
-        }
-
-        handleResponse().then(r => {});
+        })();
     }, []);
 
     const handleFileChange = async (e) => {
@@ -117,8 +108,8 @@ function App() {
                 fileReader.onloadend = async () => {
                     const fileBuffer = fileReader.result;
                     const path = `/${file.name}`;
-                    const response = await dropboxClient.filesUpload({ path, contents: fileBuffer });
-                    const sharedLink = await dropboxClient.sharingCreateSharedLinkWithSettings({ path: response.result.path_lower });
+                    const response = await dropboxClient.filesUpload({path, contents: fileBuffer});
+                    const sharedLink = await dropboxClient.sharingCreateSharedLinkWithSettings({path: response.result.path_lower});
                     setFileUrl(sharedLink.result.url);
                     console.log("Файл успешно загружен на Dropbox:", sharedLink.result.url);
                 };
