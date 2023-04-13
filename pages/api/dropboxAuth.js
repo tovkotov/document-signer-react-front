@@ -20,7 +20,6 @@ export default async function handler(req, res) {
         const accessToken = result.access_token;
         res.status(200).json({ success: true, accessToken });
     } catch (error) {
-        // Добавьте здесь логирование ошибки, чтобы увидеть подробную информацию
         console.error('Error fetching access token:', error);
         res.status(400).json({ error: 'Error fetching access token', errorDetails: error.message });
     }

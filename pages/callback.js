@@ -13,7 +13,6 @@ export default function Callback() {
                     if (data.error) {
                         console.error('Ошибка:', data.error);
                     } else {
-                        // Обработка полученного access_token
                         console.log('Access Token:', data.accessToken);
                     }
                     router.push('/');

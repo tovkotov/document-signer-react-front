@@ -1,10 +1,11 @@
-import React, {useEffect, useRef, useState} from "react";
+import React, {useEffect, useMemo, useRef, useState} from "react";
 import Web3Modal from "web3modal";
 import {ethers} from "ethers";
 import {abi, CONTRACT_ADDRESS} from "/constants/index.js";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import CryptoJS from "crypto-js";
 import {Dropbox} from "dropbox";
+import {imageConfigDefault} from "next/dist/shared/lib/image-config";
 
 function App() {
     const [walletConnected, setWalletConnected] = useState(false);
@@ -17,10 +18,19 @@ function App() {
     const [signersInputDisabled, setSignersInputDisabled] = useState(true);
     const [isFileInBlockchain, setIsFileInBlockchain] = useState(false);
     const [disableSaveButton, setDisableSaveButton] = useState(true);
-    const [accessToken, setAccessToken] = useState('');
     const [dropboxAccessToken, setDropboxAccessToken] = useState(null);
-
     // const dropboxClient = new Dropbox({accessToken: dropboxAccessToken});
+    const dropboxClient = dropboxAccessToken ? new Dropbox({accessToken: dropboxAccessToken}) : null;
+
+    // useEffect(() => {
+    //     if (dropboxAccessToken) {
+    //         const newDropboxClient = new Dropbox({ accessToken: dropboxAccessToken });
+    //         setDropboxClient(newDropboxClient);
+    //     } else {
+    //         setDropboxClient(null);
+    //     }
+    // }, [dropboxAccessToken]);
+
 
     useEffect(() => {
         if (!walletConnected) {
@@ -62,15 +72,14 @@ function App() {
         const dropboxAuthUrl = 'https://www.dropbox.com/oauth2/authorize';
         const clientId = process.env.NEXT_PUBLIC_DROPBOX_CLIENT_ID;
         const redirectUri = process.env.NEXT_PUBLIC_DROPBOX_CALLBACK_URL;
-
         const authUrl = `${dropboxAuthUrl}?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
-
         window.location.href = authUrl;
     };
 
     const handleDropboxOAuthResponse = async () => {
         const searchParams = new URLSearchParams(window.location.search);
         const code = searchParams.get("code");
+        console.log("================")
 
         if (code) {
             try {
@@ -78,12 +87,12 @@ function App() {
                 const data = await response.json();
 
                 if (data.error) {
-                    console.log("-----")
-                    console.log(data);
                     console.error("Упс: ", data.error, data.error_description);
                 } else {
-                    console.log("===")
-                    setDropboxAccessToken(data.access_token);
+                    console.log("================")
+                    console.log(data.accessToken);
+                    console.log("================")
+                    setDropboxAccessToken(data.accessToken);
                 }
             } catch (error) {
                 console.error("Ошибка при обработке ответа Dropbox OAuth:", error);
@@ -93,28 +102,40 @@ function App() {
     };
 
     useEffect(() => {
-        (async () => {
-            await handleDropboxOAuthResponse();
-        })();
+        handleDropboxOAuthResponse();
     }, []);
+
+    const uploadFileToDropbox = async () => {
+        if (!dropboxClient) {
+            console.error("dropboxClient не инициализирован");
+            return;
+        }
+        if (file && dropboxClient) {
+            const fileReader = new FileReader();
+            fileReader.onloadend = async () => {
+                const fileBuffer = fileReader.result;
+                const path = `/${file.name}`;
+                console.log("Загрузка файла на Dropbox с данными:", { path, fileBuffer });
+                try {
+                    const response = await dropboxClient.filesUpload({ path, contents: fileBuffer });
+                    const sharedLink = await dropboxClient.sharingCreateSharedLinkWithSettings({ path: response.result.path_lower });
+                    setFileUrl(sharedLink.result.url);
+                    console.log("Файл успешно загружен на Dropbox:", sharedLink.result.url);
+                } catch (error) {
+                    console.error("Ошибка при загрузке файла на Dropbox:", error);
+                }
+            };
+            fileReader.readAsArrayBuffer(file);
+        } else {
+            console.error("Файл не выбран или dropboxClient не инициализирован");
+        }
+    };
 
     const handleFileChange = async (e) => {
         const file = e.target.files[0];
 
         if (file) {
             try {
-                setFile(file);
-                const fileReader = new FileReader();
-                fileReader.onloadend = async () => {
-                    const fileBuffer = fileReader.result;
-                    const path = `/${file.name}`;
-                    const response = await dropboxClient.filesUpload({path, contents: fileBuffer});
-                    const sharedLink = await dropboxClient.sharingCreateSharedLinkWithSettings({path: response.result.path_lower});
-                    setFileUrl(sharedLink.result.url);
-                    console.log("Файл успешно загружен на Dropbox:", sharedLink.result.url);
-                };
-                fileReader.readAsArrayBuffer(file);
-
                 const hash = await calculateDocumentHash(file);
                 setDocumentHash(hash);
 
@@ -138,17 +159,24 @@ function App() {
                     setSignersInputDisabled(false);
                     setStatusMessage('');
                 }
+                setFile(file); // Установка файла после проверки блокчейна
             } catch (error) {
                 console.error("Ошибка при загрузке файла на Dropbox или проверке блокчейна:", error);
             }
         }
     };
 
+    useEffect(() => {
+        if (file && documentHash) {
+            uploadFileToDropbox();
+        }
+    }, [file, documentHash]);
+
     const handleSignersInputChange = (e) => {
         setSignersInput(e.target.value);
     };
 
-    const calculateDocumentHash = async (file) => {
+    const calculateDocumentHash = (file) => {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = (event) => {
@@ -177,6 +205,7 @@ function App() {
             const signersArray = signersInput.split(",").map((address) => address.trim());
             const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
             await contract.addDocument(documentHashBytes, signersArray);
+            //await uploadFileToDropbox();
             console.log("Документ успешно добавлен.");
             setStatusMessage("Документ успешно добавлен.");
         } catch (error) {
