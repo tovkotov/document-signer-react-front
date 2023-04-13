@@ -1,10 +1,11 @@
-import React, {useEffect, useRef, useState} from "react";
+import React, {useEffect, useMemo, useRef, useState} from "react";
 import Web3Modal from "web3modal";
 import {ethers} from "ethers";
 import {abi, CONTRACT_ADDRESS} from "/constants/index.js";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import CryptoJS from "crypto-js";
 import { Dropbox } from "dropbox";
+import * as app from "react";
 
 function App() {
     const [walletConnected, setWalletConnected] = useState(false);
@@ -17,8 +18,17 @@ function App() {
     const [signersInputDisabled, setSignersInputDisabled] = useState(true);
     const [isFileInBlockchain, setIsFileInBlockchain] = useState(false);
     const [disableSaveButton, setDisableSaveButton] = useState(true);
+    const [accessToken, setAccessToken] = useState('');
+    const [dropboxAccessToken, setDropboxAccessToken] = useState(null);
 
-    const dropboxClient = new Dropbox({accessToken: process.env.NEXT_PUBLIC_DROPBOX_ACCESS_TOKEN,});
+
+    const dropboxClient = useMemo(() => {
+        if (accessToken) {
+            return new Dropbox({ accessToken });
+        } else {
+            return null;
+        }
+    }, [accessToken]);
 
     useEffect(() => {
         if (!walletConnected) {
@@ -55,6 +65,47 @@ function App() {
             });
         }
     }, [file]);
+
+    const handleDropboxAuth = () => {
+        const dropboxAuthUrl = 'https://www.dropbox.com/oauth2/authorize';
+        const clientId = process.env.NEXT_PUBLIC_DROPBOX_CLIENT_ID;
+        const redirectUri = process.env.NEXT_PUBLIC_DROPBOX_CALLBACK_URL;
+
+        const authUrl = `${dropboxAuthUrl}?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
+
+        window.location.href = authUrl;
+    };
+
+    const handleDropboxOAuthResponse = async () => {
+        const searchParams = new URLSearchParams(window.location.search);
+        const code = searchParams.get("code");
+
+        if (code) {
+            try {
+                const response = await fetch("/api/dropboxAuth?code=" + encodeURIComponent(code));
+                const data = await response.json();
+
+                console.log("=====")
+                console.log(data);
+
+                if (data.error) {
+                    console.error("Упс: ", data.error, data.error_description);
+                } else {
+                    setDropboxAccessToken(data.access_token);
+                }
+            } catch (error) {
+                console.error("Ошибка при обработке ответа Dropbox OAuth:", error);
+            }
+        }
+    };
+
+    useEffect(() => {
+        async function handleResponse() {
+            await handleDropboxOAuthResponse();
+        }
+
+        handleResponse().then(r => {});
+    }, []);
 
     const handleFileChange = async (e) => {
         const file = e.target.files[0];
@@ -199,6 +250,12 @@ function App() {
     return (
         <div className="container">
             <h1 className="my-4 text-center">Document Signer</h1>
+            <div>
+                <button className="btn btn-primary custom-button"
+                        onClick={handleDropboxAuth}>
+                    Авторизовать Dropbox
+                </button>
+            </div>
             {!walletConnected && (
                 <button
                     className="btn btn-primary custom-button"
