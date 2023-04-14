@@ -5,7 +5,7 @@ import {abi, CONTRACT_ADDRESS} from "/constants/index.js";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import CryptoJS from "crypto-js";
 import {Dropbox} from "dropbox";
-import {imageConfigDefault} from "next/dist/shared/lib/image-config";
+import { useRouter } from 'next/router';
 
 function App() {
     const [walletConnected, setWalletConnected] = useState(false);
@@ -19,18 +19,44 @@ function App() {
     const [isFileInBlockchain, setIsFileInBlockchain] = useState(false);
     const [disableSaveButton, setDisableSaveButton] = useState(true);
     const [dropboxAccessToken, setDropboxAccessToken] = useState(null);
-    // const dropboxClient = new Dropbox({accessToken: dropboxAccessToken});
-    const dropboxClient = dropboxAccessToken ? new Dropbox({accessToken: dropboxAccessToken}) : null;
+    const [dropboxClient, setDropboxClient] = useState(null);
+    const router = useRouter();
 
-    // useEffect(() => {
-    //     if (dropboxAccessToken) {
-    //         const newDropboxClient = new Dropbox({ accessToken: dropboxAccessToken });
-    //         setDropboxClient(newDropboxClient);
-    //     } else {
-    //         setDropboxClient(null);
-    //     }
-    // }, [dropboxAccessToken]);
+    useEffect(() => {
+        if (dropboxAccessToken) {
+            const newDropboxClient = new Dropbox({ accessToken: dropboxAccessToken });
+            setDropboxClient(newDropboxClient);
+        } else {
+            setDropboxClient(null);
+        }
+    }, [dropboxAccessToken]);
 
+    const useCallbackHandler = () => {
+        useEffect(() => {
+            const { code } = router.query;
+            if (code) {
+                fetch(`/api/dropboxAuth?code=${code}`)
+                    .then((response) => response.json())
+                    .then((data) => {
+                        if (data.error) {
+                            console.error('Ошибка:', data.error);
+                        } else {
+                            console.log('Access Token:', data.accessToken);
+                            setDropboxAccessToken(data.accessToken);
+                        }
+                        router.push('/');
+                    })
+                    .catch((error) => {
+                        console.error('Произошла ошибка:', error);
+                        router.push('/');
+                    });
+            } else {
+                router.push('/');
+            }
+        }, [router]);
+    };
+
+    useCallbackHandler();
 
     useEffect(() => {
         if (!walletConnected) {
@@ -79,8 +105,6 @@ function App() {
     const handleDropboxOAuthResponse = async () => {
         const searchParams = new URLSearchParams(window.location.search);
         const code = searchParams.get("code");
-        console.log("================")
-
         if (code) {
             try {
                 const response = await fetch("/api/dropboxAuth?code=" + encodeURIComponent(code));
@@ -89,14 +113,10 @@ function App() {
                 if (data.error) {
                     console.error("Упс: ", data.error, data.error_description);
                 } else {
-                    console.log("================")
-                    console.log(data.accessToken);
-                    console.log("================")
                     setDropboxAccessToken(data.accessToken);
                 }
             } catch (error) {
                 console.error("Ошибка при обработке ответа Dropbox OAuth:", error);
-                console.error("Подробности об ошибке:", error.message, error.stack);
             }
         }
     };
@@ -138,18 +158,15 @@ function App() {
             try {
                 const hash = await calculateDocumentHash(file);
                 setDocumentHash(hash);
-
                 const provider = new ethers.providers.Web3Provider(await web3ModalRef.current.connect());
                 const signer = provider.getSigner();
                 const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
-
                 const documentHashBytes = ethers.utils.arrayify("0x" + hash);
                 const [signers, signedStatus] = await contract.getSignersStatus(documentHashBytes);
 
                 if (signers.length > 0) {
                     setSignersInput(signers.join(', '));
                     setSignersInputDisabled(true);
-
                     const signersStatus = signers.map((signer, index) => {
                         return `${signer}: ${signedStatus[index] ? "Подписан" : "Не подписан"}`;
                     });
@@ -159,7 +176,7 @@ function App() {
                     setSignersInputDisabled(false);
                     setStatusMessage('');
                 }
-                setFile(file); // Установка файла после проверки блокчейна
+                setFile(file);
             } catch (error) {
                 console.error("Ошибка при загрузке файла на Dropbox или проверке блокчейна:", error);
             }
@@ -205,7 +222,6 @@ function App() {
             const signersArray = signersInput.split(",").map((address) => address.trim());
             const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
             await contract.addDocument(documentHashBytes, signersArray);
-            //await uploadFileToDropbox();
             console.log("Документ успешно добавлен.");
             setStatusMessage("Документ успешно добавлен.");
         } catch (error) {
@@ -224,12 +240,10 @@ function App() {
             const provider = await web3ModalRef.current.connect();
             const signer = new ethers.providers.Web3Provider(provider).getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
-            // Преобразование строки хеша в массив байтов
             const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
             await contract.signDocument(documentHashBytes);
             setStatusMessage("Документ успешно подписан.");
         } catch (error) {
-            console.error("Ошибка при подписании документа:", error);
             setStatusMessage("Ошибка при подписании документа.");
         }
     };
@@ -244,14 +258,8 @@ function App() {
             const provider = new ethers.providers.Web3Provider(await web3ModalRef.current.connect());
             const signer = provider.getSigner(); // Получаем signer из provider
             const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer); // Используем signer вместо provider
-
-            // Преобразование строки хеша в массив байтов
             const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
-
             const [signers, signedStatus] = await contract.getSignersStatus(documentHashBytes);
-            console.log("Список подписантов:", signers);
-            console.log("Статус подписи:", signedStatus);
-
             const signersStatus = signers.map((signer, index) => {
                 return `${signer}: ${signedStatus[index] ? "Подписан" : "Не подписан"}`;
             });
@@ -262,7 +270,6 @@ function App() {
                 setIsFileInBlockchain(false);
             }
         } catch (error) {
-            console.error("Ошибка при получении статуса подписантов:", error);
             setStatusMessage("Ошибка при получении статуса подписантов.");
         }
     };
