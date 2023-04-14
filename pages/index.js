@@ -32,32 +32,26 @@ function App() {
         }
     }, [dropboxAccessToken]);
 
-    const useCallbackHandler = () => {
-        useEffect(() => {
-            const {code} = router.query;
-            if (code) {
-                fetch(`/api/dropboxAuth?code=${code}`)
-                    .then((response) => response.json())
-                    .then((data) => {
-                        if (data.error) {
-                            console.error('Ошибка:', data.error);
-                        } else {
-                            console.log('Access Token:', data.accessToken);
-                            setDropboxAccessToken(data.accessToken);
-                        }
-                        router.push('/');
-                    })
-                    .catch((error) => {
-                        console.error('Произошла ошибка:', error);
-                        router.push('/');
-                    });
-            } else {
-                router.push('/');
-            }
-        }, [router]);
-    };
-
-    useCallbackHandler();
+    useEffect(() => {
+        const { code } = router.query;
+        if (code) {
+            fetch(`/api/dropboxAuth?code=${code}`)
+                .then((response) => response.json())
+                .then((data) => {
+                    if (data.error) {
+                        console.error("Ошибка:", data.error);
+                    } else {
+                        console.log("Access Token:", data.accessToken);
+                        setDropboxAccessToken(data.accessToken);
+                    }
+                    router.push("/");
+                })
+                .catch((error) => {
+                    console.error("Произошла ошибка:", error);
+                    router.push("/");
+                });
+        }
+    }, [router]);
 
     useEffect(() => {
         if (!walletConnected) {
@@ -135,7 +129,7 @@ function App() {
             const fileReader = new FileReader();
             fileReader.onloadend = async () => {
                 const fileBuffer = fileReader.result;
-                const path = `/${file.name}`;
+                const path = `/Приложения/Ananas Signer/${file.name}`;
                 console.log("Загрузка файла на Dropbox с данными:", {path, fileBuffer});
                 try {
                     const response = await dropboxClient.filesUpload({path, contents: fileBuffer});
@@ -183,12 +177,6 @@ function App() {
             }
         }
     };
-
-    useEffect(() => {
-        if (file && documentHash) {
-            uploadFileToDropbox();
-        }
-    }, [file, documentHash]);
 
     const handleSignersInputChange = (e) => {
         setSignersInput(e.target.value);
