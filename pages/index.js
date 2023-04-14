@@ -1,11 +1,11 @@
-import React, {useEffect, useMemo, useRef, useState} from "react";
+import React, {useEffect, useRef, useState} from "react";
 import Web3Modal from "web3modal";
 import {ethers} from "ethers";
 import {abi, CONTRACT_ADDRESS} from "/constants/index.js";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import CryptoJS from "crypto-js";
 import {Dropbox} from "dropbox";
-import { useRouter } from 'next/router';
+import {useRouter} from 'next/router';
 
 function App() {
     const [walletConnected, setWalletConnected] = useState(false);
@@ -20,11 +20,12 @@ function App() {
     const [disableSaveButton, setDisableSaveButton] = useState(true);
     const [dropboxAccessToken, setDropboxAccessToken] = useState(null);
     const [dropboxClient, setDropboxClient] = useState(null);
+    const [isDropboxAuthorized, setIsDropboxAuthorized] = useState(false);
     const router = useRouter();
 
     useEffect(() => {
         if (dropboxAccessToken) {
-            const newDropboxClient = new Dropbox({ accessToken: dropboxAccessToken });
+            const newDropboxClient = new Dropbox({accessToken: dropboxAccessToken});
             setDropboxClient(newDropboxClient);
         } else {
             setDropboxClient(null);
@@ -33,7 +34,7 @@ function App() {
 
     const useCallbackHandler = () => {
         useEffect(() => {
-            const { code } = router.query;
+            const {code} = router.query;
             if (code) {
                 fetch(`/api/dropboxAuth?code=${code}`)
                     .then((response) => response.json())
@@ -98,8 +99,7 @@ function App() {
         const dropboxAuthUrl = 'https://www.dropbox.com/oauth2/authorize';
         const clientId = process.env.NEXT_PUBLIC_DROPBOX_CLIENT_ID;
         const redirectUri = process.env.NEXT_PUBLIC_DROPBOX_CALLBACK_URL;
-        const authUrl = `${dropboxAuthUrl}?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
-        window.location.href = authUrl;
+        window.location.href = `${dropboxAuthUrl}?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
     };
 
     const handleDropboxOAuthResponse = async () => {
@@ -114,6 +114,7 @@ function App() {
                     console.error("Упс: ", data.error, data.error_description);
                 } else {
                     setDropboxAccessToken(data.accessToken);
+                    setIsDropboxAuthorized(true);
                 }
             } catch (error) {
                 console.error("Ошибка при обработке ответа Dropbox OAuth:", error);
@@ -135,10 +136,10 @@ function App() {
             fileReader.onloadend = async () => {
                 const fileBuffer = fileReader.result;
                 const path = `/${file.name}`;
-                console.log("Загрузка файла на Dropbox с данными:", { path, fileBuffer });
+                console.log("Загрузка файла на Dropbox с данными:", {path, fileBuffer});
                 try {
-                    const response = await dropboxClient.filesUpload({ path, contents: fileBuffer });
-                    const sharedLink = await dropboxClient.sharingCreateSharedLinkWithSettings({ path: response.result.path_lower });
+                    const response = await dropboxClient.filesUpload({path, contents: fileBuffer});
+                    const sharedLink = await dropboxClient.sharingCreateSharedLinkWithSettings({path: response.result.path_lower});
                     setFileUrl(sharedLink.result.url);
                     console.log("Файл успешно загружен на Dropbox:", sharedLink.result.url);
                 } catch (error) {
@@ -222,6 +223,7 @@ function App() {
             const signersArray = signersInput.split(",").map((address) => address.trim());
             const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
             await contract.addDocument(documentHashBytes, signersArray);
+            await uploadFileToDropbox();
             console.log("Документ успешно добавлен.");
             setStatusMessage("Документ успешно добавлен.");
         } catch (error) {
@@ -277,12 +279,12 @@ function App() {
     return (
         <div className="container">
             <h1 className="my-4 text-center">Document Signer</h1>
-            <div>
+            {!isDropboxAuthorized && (
                 <button className="btn btn-primary custom-button"
                         onClick={handleDropboxAuth}>
                     Авторизовать Dropbox
                 </button>
-            </div>
+            )}
             {!walletConnected && (
                 <button
                     className="btn btn-primary custom-button"
