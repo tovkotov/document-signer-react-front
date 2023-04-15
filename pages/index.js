@@ -409,7 +409,7 @@ function App() {
                                         </a>{" "}
                                         <button
                                             className="btn btn-primary custom-button me-2"
-                                            onClick={() => signDocument(documentHash)}
+                                            onClick={() => signUploadDocument(documentHash)}
                                         >
                                             <FontAwesomeIcon icon={faFileSignature} className="me-2"/>
                                             Подписать документ
