@@ -308,6 +308,28 @@ function App() {
         }
     };
 
+    const signUploadDocument = async (documentHashToSign) => {
+        console.log("отладка подписи");
+        if (!documentHashToSign) {
+            setStatusMessage("Пожалуйста, загрузите файл для вычисления хеша.");
+            return;
+        }
+        console.log("отладка подписи2");
+        try {
+            const provider = await web3ModalRef.current.connect();
+            const signer = new ethers.providers.Web3Provider(provider).getSigner();
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+            const documentHashBytes = ethers.utils.arrayify(documentHashToSign);
+            await contract.signDocument(documentHashBytes);
+            await fetchSignedDocuments();
+            await fetchUnsignedDocuments();
+            setStatusMessage("Документ успешно подписан.");
+        } catch (error) {
+            setStatusMessage("Ошибка при подписании документа.");
+        }
+    };
+
+
     const getSignersStatus = async () => {
         if (!documentHash) {
             setStatusMessage("Пожалуйста, загрузите файл для вычисления хеша.");
@@ -360,7 +382,7 @@ function App() {
                                     <a href={dropboxUrl} target="_blank" rel="noopener noreferrer">
                                         Просмотреть документ
                                     </a>{" "}
-                                    <button onClick={() => signDocument(documentHash)}>Подписать документ</button>
+                                    <button onClick={() => signUploadDocument(documentHash)}>Подписать документ</button>
                                 </li>
                             ))}
                         </ul>
