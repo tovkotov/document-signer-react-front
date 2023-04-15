@@ -155,7 +155,7 @@ function App() {
                 const fileReader = new FileReader();
                 fileReader.onloadend = async () => {
                     const fileBuffer = fileReader.result;
-                    const path = `/Приложения/Ananas Signer/${file.name}`;
+                    const path = `${file.name}`;
                     console.log("Загрузка файла на Dropbox с данными:", {path, fileBuffer});
                     try {
                         const response = await dropboxClient.filesUpload({path, contents: fileBuffer});
@@ -167,7 +167,7 @@ function App() {
                         reject(error);
                     }
                 };
-                fileReader.readAsArrayBuffer(file);
+                fileReader.readAsArrayBuffer(file); //todo: file??? что не так
             } else {
                 console.error("Файл не выбран или dropboxClient не инициализирован");
                 reject(new Error("Файл не выбран или dropboxClient не инициализирован"));
@@ -238,7 +238,6 @@ function App() {
 
     const fetchUnsignedDocuments = async (signer) => {
         if (!signer) {
-            console.log("fetchUnsignedDocuments no signer detect");
             return;
         }
 
@@ -256,7 +255,6 @@ function App() {
 
     const fetchSignedDocuments = async (signer) => {
         if (!signer) {
-            console.log("fetchSignedDocuments no signer detect");
             return;
         }
 
@@ -289,7 +287,6 @@ function App() {
             await contract.addDocument(documentHashBytes, fileUrl, signersArray);
 
             console.log("Документ успешно добавлен.");
-            console.log(fileUrl);
             setStatusMessage("Документ успешно добавлен.");
         } catch (error) {
             console.error("Ошибка при добавлении документа:", error);
@@ -308,7 +305,11 @@ function App() {
             const signer = new ethers.providers.Web3Provider(provider).getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
             const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
-            await contract.signDocument(documentHashBytes);
+            // await contract.signDocument(documentHashBytes);
+
+            const tx = await contract.signDocument(documentHashBytes);
+            await provider.waitForTransaction(tx.hash, 6);
+
             await fetchSignedDocuments(signer);
             await fetchUnsignedDocuments(signer);
             setStatusMessage("Документ успешно подписан.");
@@ -318,12 +319,10 @@ function App() {
     };
 
     const signUploadDocument = async (documentHashToSign) => {
-        console.log("отладка подписи");
         if (!documentHashToSign) {
             setStatusMessage("Пожалуйста, загрузите файл для вычисления хеша.");
             return;
         }
-        console.log("отладка подписи2");
         try {
             const provider = await web3ModalRef.current.connect();
             const signer = new ethers.providers.Web3Provider(provider).getSigner();
