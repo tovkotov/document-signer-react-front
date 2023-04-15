@@ -13,6 +13,7 @@ function App() {
     const [file, setFile] = useState(null);
     const [documentHash, setDocumentHash] = useState(null);
     const [signersInput, setSignersInput] = useState("");
+    const [signer, setSigner] = useState(null);
     const [statusMessage, setStatusMessage] = useState("");
     const [fileUrl, setFileUrl] = useState("");
     const [signersInputDisabled, setSignersInputDisabled] = useState(true);
@@ -21,6 +22,8 @@ function App() {
     const [dropboxAccessToken, setDropboxAccessToken] = useState(null);
     const [dropboxClient, setDropboxClient] = useState(null);
     const [isDropboxAuthorized, setIsDropboxAuthorized] = useState(false);
+    const [unsignedDocuments, setUnsignedDocuments] = useState([]);
+    const [signedDocuments, setSignedDocuments] = useState([]);
     const router = useRouter();
 
     useEffect(() => {
@@ -72,13 +75,25 @@ function App() {
 
     const connectWallet = async () => {
         try {
+            if (!web3ModalRef.current.cachedProvider) {
+                await web3ModalRef.current.connect();
+            }
+
             const provider = await web3ModalRef.current.connect();
-            const web3Provider = new ethers.providers.Web3Provider(provider);
+            const signer = new ethers.providers.Web3Provider(provider).getSigner();
+            setSigner(signer);
             setWalletConnected(true);
         } catch (error) {
             console.log(error);
         }
     };
+
+    useEffect(() => {
+        if (signer) {
+            fetchUnsignedDocuments(signer);
+            fetchSignedDocuments(signer);
+        }
+    }, [signer]);
 
     useEffect(() => {
         if (file) {
@@ -125,25 +140,30 @@ function App() {
             console.error("dropboxClient не инициализирован");
             return;
         }
-        if (file && dropboxClient) {
-            const fileReader = new FileReader();
-            fileReader.onloadend = async () => {
-                const fileBuffer = fileReader.result;
-                const path = `/Приложения/Ananas Signer/${file.name}`;
-                console.log("Загрузка файла на Dropbox с данными:", {path, fileBuffer});
-                try {
-                    const response = await dropboxClient.filesUpload({path, contents: fileBuffer});
-                    const sharedLink = await dropboxClient.sharingCreateSharedLinkWithSettings({path: response.result.path_lower});
-                    setFileUrl(sharedLink.result.url);
-                    console.log("Файл успешно загружен на Dropbox:", sharedLink.result.url);
-                } catch (error) {
-                    console.error("Ошибка при загрузке файла на Dropbox:", error);
-                }
-            };
-            fileReader.readAsArrayBuffer(file);
-        } else {
-            console.error("Файл не выбран или dropboxClient не инициализирован");
-        }
+
+        return new Promise(async (resolve, reject) => {
+            if (file && dropboxClient) {
+                const fileReader = new FileReader();
+                fileReader.onloadend = async () => {
+                    const fileBuffer = fileReader.result;
+                    const path = `/Приложения/Ananas Signer/${file.name}`;
+                    console.log("Загрузка файла на Dropbox с данными:", {path, fileBuffer});
+                    try {
+                        const response = await dropboxClient.filesUpload({path, contents: fileBuffer});
+                        const sharedLink = await dropboxClient.sharingCreateSharedLinkWithSettings({path: response.result.path_lower});
+                        console.log("Файл успешно загружен на Dropbox:", sharedLink.result.url);
+                        resolve(sharedLink.result.url);
+                    } catch (error) {
+                        console.error("Ошибка при загрузке файла на Dropbox:", error);
+                        reject(error);
+                    }
+                };
+                fileReader.readAsArrayBuffer(file);
+            } else {
+                console.error("Файл не выбран или dropboxClient не инициализирован");
+                reject(new Error("Файл не выбран или dropboxClient не инициализирован"));
+            }
+        });
     };
 
     const handleFileChange = async (e) => {
@@ -198,6 +218,51 @@ function App() {
         });
     };
 
+    const fetchDropboxUrl = async (documentHash, signer) => {
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+        const documentHashBytes = ethers.utils.arrayify(documentHash);
+        const dropboxUrl = await contract.getDocumentDropboxUrl(documentHashBytes);
+        console.log(dropboxUrl);
+        return dropboxUrl;
+    };
+
+
+    const fetchUnsignedDocuments = async (signer) => {
+        if (!signer) {
+            console.log("fetchUnsignedDocuments no signer detect");
+            return;
+        }
+
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+        const unsignedDocs = await contract.getUnsignedDocuments(await signer.getAddress());
+        const unsignedDocsWithUrls = [];
+
+        for (const documentHash of unsignedDocs) {
+            const dropboxUrl = await fetchDropboxUrl(documentHash, signer);
+            console.log(dropboxUrl);
+            unsignedDocsWithUrls.push({ documentHash, dropboxUrl });
+        }
+        setUnsignedDocuments(unsignedDocsWithUrls);
+    };
+
+    const fetchSignedDocuments = async (signer) => {
+        if (!signer) {
+            console.log("fetchSignedDocuments no signer detect");
+            return;
+        }
+
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+        const signedDocs = await contract.getSignedDocuments(await signer.getAddress());
+        const signedDocsWithUrls = [];
+        for (const documentHash of signedDocs) {
+            const dropboxUrl = await fetchDropboxUrl(documentHash, signer);
+            console.log(dropboxUrl);
+            signedDocsWithUrls.push({ documentHash, dropboxUrl });
+        }
+        setSignedDocuments(signedDocsWithUrls);
+    };
+
+
     const saveDocument = async () => {
         if (!documentHash || !signersInput) {
             setStatusMessage("Ошибка: заполните все поля.");
@@ -210,9 +275,12 @@ function App() {
             const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
             const signersArray = signersInput.split(",").map((address) => address.trim());
             const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
-            await contract.addDocument(documentHashBytes, signersArray);
-            await uploadFileToDropbox();
+            const fileUrl = await uploadFileToDropbox();
+
+            await contract.addDocument(documentHashBytes, fileUrl, signersArray);
+
             console.log("Документ успешно добавлен.");
+            console.log(fileUrl);
             setStatusMessage("Документ успешно добавлен.");
         } catch (error) {
             console.error("Ошибка при добавлении документа:", error);
@@ -232,6 +300,8 @@ function App() {
             const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
             const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
             await contract.signDocument(documentHashBytes);
+            await fetchSignedDocuments(signer);
+            await fetchUnsignedDocuments(signer);
             setStatusMessage("Документ успешно подписан.");
         } catch (error) {
             setStatusMessage("Ошибка при подписании документа.");
@@ -268,67 +338,97 @@ function App() {
         <div className="container">
             <h1 className="my-4 text-center">Document Signer</h1>
             {!isDropboxAuthorized && (
-                <button className="btn btn-primary custom-button"
-                        onClick={handleDropboxAuth}>
+                <button className="btn btn-primary custom-button" onClick={handleDropboxAuth}>
                     Авторизовать Dropbox
                 </button>
             )}
             {!walletConnected && (
-                <button
-                    className="btn btn-primary custom-button"
-                    onClick={connectWallet}
-                >
+                <button className="btn btn-primary custom-button" onClick={connectWallet}>
                     Подключить кошелек
                 </button>
             )}
-            {walletConnected && (
-                <div className="card custom-card">
-                    <div className="card-body">
-                        <div className="mb-3">
-                            <label className="form-label">Выберите файл</label>
-                            <input
-                                className="form-control"
-                                type="file"
-                                onChange={handleFileChange}
-                            />
-                            <p>Хеш файла: {documentHash}</p>
-                            {fileUrl && (
-                                <p>
-                                    Ссылка на файл в Dropbox:{" "}
-                                    <a href={fileUrl} target="_blank" rel="noopener noreferrer">
-                                        {fileUrl}
-                                    </a>
-                                </p>
-                            )}
 
+            {walletConnected && (
+                <div className="container">
+                    {/* Верхняя часть страницы: Неподписанные документы */}
+                    <div>
+                        <h2>Неподписанные документы</h2>
+                        <ul>
+                            {unsignedDocuments.map(({ documentHash, dropboxUrl }) => (
+                                <li key={documentHash}>
+                                    {documentHash} -{" "}
+                                    <a href={dropboxUrl} target="_blank" rel="noopener noreferrer">
+                                        Просмотреть документ
+                                    </a>{" "}
+                                    <button onClick={() => signDocument(documentHash)}>Подписать документ</button>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+
+                    {/* Средняя часть страницы: Загрузка, сохранение и подписание документов */}
+                    <div className="card custom-card">
+                        <div className="card-body">
+                            <div className="mb-3">
+                                <label className="form-label">Выберите файл</label>
+                                <input
+                                    className="form-control"
+                                    type="file"
+                                    onChange={handleFileChange}
+                                />
+                                <p>Хеш файла: {documentHash}</p>
+                                {fileUrl && (
+                                    <p>
+                                        Ссылка на файл в Dropbox:{" "}
+                                        <a href={fileUrl} target="_blank" rel="noopener noreferrer">
+                                            {fileUrl}
+                                        </a>
+                                    </p>
+                                )}
+                            </div>
+                            <div className="mb-3">
+                                <label className="form-label">
+                                    Введите адреса подписантов, разделенные запятыми
+                                </label>
+                                <input
+                                    className="form-control"
+                                    type="text"
+                                    value={signersInput}
+                                    onChange={handleSignersInputChange}
+                                    placeholder="Введите адреса подписантов, разделенные запятыми"
+                                    disabled={!isFileInBlockchain && !documentHash}
+                                />
+                            </div>
+                            <button
+                                className="btn btn-primary custom-button me-2"
+                                onClick={saveDocument}
+                                disabled={disableSaveButton}
+                            >
+                                Сохранить
+                            </button>
+                            <button
+                                className="btn btn-primary custom-button me-2"
+                                onClick={signDocument}
+                            >
+                                Подписать документ
+                            </button>
+                            <p className="mt-3">{statusMessage}</p>
                         </div>
-                        <div className="mb-3">
-                            <label className="form-label">
-                                Введите адреса подписантов, разделенные запятыми
-                            </label>
-                            <input
-                                className="form-control"
-                                type="text"
-                                value={signersInput}
-                                onChange={handleSignersInputChange}
-                                placeholder="Введите адреса подписантов, разделенные запятыми"
-                                disabled={!isFileInBlockchain && !documentHash}
-                            />
-                        </div>
-                        <button
-                            className="btn btn-primary custom-button me-2"
-                            onClick={saveDocument}
-                            disabled={disableSaveButton}
-                        >
-                            Сохранить
-                        </button>
-                        <button
-                            className="btn btn-primary custom-button me-2"
-                            onClick={signDocument}
-                        >
-                            Подписать документ
-                        </button>
-                        <p className="mt-3">{statusMessage}</p>
+                    </div>
+
+                    {/* Нижняя часть страницы: Подписанные документы */}
+                    <div>
+                        <h2>Подписанные документы</h2>
+                        <ul>
+                            {signedDocuments.map(({ documentHash, dropboxUrl }) => (
+                                <li key={documentHash}>
+                                    {documentHash} -{" "}
+                                    <a href={dropboxUrl} target="_blank" rel="noopener noreferrer">
+                                        Просмотреть документ
+                                    </a>
+                                </li>
+                            ))}
+                        </ul>
                     </div>
                 </div>
             )}
