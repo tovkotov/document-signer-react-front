@@ -4,11 +4,59 @@ import {ethers} from "ethers";
 import {abi, CONTRACT_ADDRESS} from "/constants/index.js";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import CryptoJS from "crypto-js";
-
+import {Dropbox} from "dropbox";
+import {useRouter} from 'next/router';
+import {FontAwesomeIcon} from '@fortawesome/react-fontawesome';
+import {faFileSignature} from '@fortawesome/free-solid-svg-icons';
 
 function App() {
     const [walletConnected, setWalletConnected] = useState(false);
     const web3ModalRef = useRef();
+    const [file, setFile] = useState(null);
+    const [documentHash, setDocumentHash] = useState(null);
+    const [signersInput, setSignersInput] = useState("");
+    const [signer, setSigner] = useState(null);
+    const [statusMessage, setStatusMessage] = useState("");
+    const [fileUrl, setFileUrl] = useState("");
+    const [signersInputDisabled, setSignersInputDisabled] = useState(true);
+    const [isFileInBlockchain, setIsFileInBlockchain] = useState(false);
+    const [disableSaveButton, setDisableSaveButton] = useState(true);
+    const [dropboxAccessToken, setDropboxAccessToken] = useState(null);
+    const [dropboxClient, setDropboxClient] = useState(null);
+    const [isDropboxAuthorized, setIsDropboxAuthorized] = useState(false);
+    const [unsignedDocuments, setUnsignedDocuments] = useState([]);
+    const [signedDocuments, setSignedDocuments] = useState([]);
+    const router = useRouter();
+
+    useEffect(() => {
+        if (dropboxAccessToken) {
+            const newDropboxClient = new Dropbox({accessToken: dropboxAccessToken});
+            setDropboxClient(newDropboxClient);
+        } else {
+            setDropboxClient(null);
+        }
+    }, [dropboxAccessToken]);
+
+    useEffect(() => {
+        const {code} = router.query;
+        if (code) {
+            fetch(`/api/dropboxAuth?code=${code}`)
+                .then((response) => response.json())
+                .then((data) => {
+                    if (data.error) {
+                        console.error("Ошибка:", data.error);
+                    } else {
+                        console.log("Access Token:", data.accessToken);
+                        setDropboxAccessToken(data.accessToken);
+                    }
+                    router.push("/");
+                })
+                .catch((error) => {
+                    console.error("Произошла ошибка:", error);
+                    router.push("/");
+                });
+        }
+    }, [router]);
 
     useEffect(() => {
         if (!walletConnected) {
@@ -20,39 +68,152 @@ function App() {
         }
     }, [walletConnected]);
 
+    useEffect(() => {
+        if (isFileInBlockchain !== null && documentHash) {
+            setDisableSaveButton(isFileInBlockchain);
+        }
+    }, [isFileInBlockchain, documentHash]);
+
+
     const connectWallet = async () => {
         try {
+            if (!web3ModalRef.current.cachedProvider) {
+                await web3ModalRef.current.connect();
+            }
+
             const provider = await web3ModalRef.current.connect();
-            const web3Provider = new ethers.providers.Web3Provider(provider);
+            const signer = new ethers.providers.Web3Provider(provider).getSigner();
+            setSigner(signer);
             setWalletConnected(true);
         } catch (error) {
             console.log(error);
         }
     };
 
-    const [file, setFile] = useState(null);
-    const [documentHash, setDocumentHash] = useState(null);
-    const [signersInput, setSignersInput] = useState("");
-    const [statusMessage, setStatusMessage] = useState("");
-
+    useEffect(() => {
+        if (signer) {
+            fetchUnsignedDocuments(signer);
+            fetchSignedDocuments(signer);
+        }
+    }, [signer]);
 
     useEffect(() => {
         if (file) {
-            calculateDocumentHash(file).then((hash) => {
+            calculateDocumentHash(file).then(async (hash) => {
                 setDocumentHash(hash);
+                await getSignersStatus();
             });
         }
     }, [file]);
 
-    const handleFileChange = (e) => {
-        setFile(e.target.files[0]);
+    const handleDropboxAuth = () => {
+        const dropboxAuthUrl = 'https://www.dropbox.com/oauth2/authorize';
+        const clientId = process.env.NEXT_PUBLIC_DROPBOX_CLIENT_ID;
+        const redirectUri = process.env.NEXT_PUBLIC_DROPBOX_CALLBACK_URL;
+        window.location.href = `${dropboxAuthUrl}?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    };
+
+    const restoreDropboxSession = () => {
+        const savedToken = localStorage.getItem("dropboxAccessToken");
+        if (savedToken) {
+            setDropboxAccessToken(savedToken);
+            setIsDropboxAuthorized(true);
+        }
+    };
+
+    const handleDropboxOAuthResponse = async () => {
+        const searchParams = new URLSearchParams(window.location.search);
+        const code = searchParams.get("code");
+        if (code) {
+            try {
+                const response = await fetch("/api/dropboxAuth?code=" + encodeURIComponent(code));
+                const data = await response.json();
+
+                if (data.error) {
+                    console.error("Упс: ", data.error, data.error_description);
+                } else {
+                    setDropboxAccessToken(data.accessToken);
+                    localStorage.setItem("dropboxAccessToken", data.accessToken);
+                    setIsDropboxAuthorized(true);
+                }
+            } catch (error) {
+                console.error("Ошибка при обработке ответа Dropbox OAuth:", error);
+            }
+        }
+    };
+
+    useEffect(() => {
+        handleDropboxOAuthResponse();
+    }, []);
+
+    const uploadFileToDropbox = async () => {
+        if (!dropboxClient) {
+            console.error("dropboxClient не инициализирован");
+            return;
+        }
+
+        return new Promise(async (resolve, reject) => {
+            if (file && dropboxClient) {
+                const fileReader = new FileReader();
+                fileReader.onloadend = async () => {
+                    const fileBuffer = fileReader.result;
+                    const path = `${file.name}`;
+                    console.log("Загрузка файла на Dropbox с данными:", {path, fileBuffer});
+                    try {
+                        const response = await dropboxClient.filesUpload({path, contents: fileBuffer});
+                        const sharedLink = await dropboxClient.sharingCreateSharedLinkWithSettings({path: response.result.path_lower});
+                        console.log("Файл успешно загружен на Dropbox:", sharedLink.result.url);
+                        resolve(sharedLink.result.url);
+                    } catch (error) {
+                        console.error("Ошибка при загрузке файла на Dropbox:", error);
+                        reject(error);
+                    }
+                };
+                fileReader.readAsArrayBuffer(file); //todo: file??? что не так
+            } else {
+                console.error("Файл не выбран или dropboxClient не инициализирован");
+                reject(new Error("Файл не выбран или dropboxClient не инициализирован"));
+            }
+        });
+    };
+
+    const handleFileChange = async (e) => {
+        const file = e.target.files[0];
+
+        if (file) {
+            try {
+                const hash = await calculateDocumentHash(file);
+                setDocumentHash(hash);
+                const provider = new ethers.providers.Web3Provider(await web3ModalRef.current.connect());
+                const signer = provider.getSigner();
+                const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+                const documentHashBytes = ethers.utils.arrayify("0x" + hash);
+                const [signers, signedStatus] = await contract.getSignersStatus(documentHashBytes);
+
+                if (signers.length > 0) {
+                    setSignersInput(signers.join(', '));
+                    setSignersInputDisabled(true);
+                    const signersStatus = signers.map((signer, index) => {
+                        return `${signer}: ${signedStatus[index] ? "Подписан" : "Не подписан"}`;
+                    });
+                    setStatusMessage(`Статус подписантов:\n${signersStatus.join("\n")}`);
+                } else {
+                    setSignersInput('');
+                    setSignersInputDisabled(false);
+                    setStatusMessage('');
+                }
+                setFile(file);
+            } catch (error) {
+                console.error("Ошибка при загрузке файла на Dropbox или проверке блокчейна:", error);
+            }
+        }
     };
 
     const handleSignersInputChange = (e) => {
         setSignersInput(e.target.value);
     };
 
-    const calculateDocumentHash = async (file) => {
+    const calculateDocumentHash = (file) => {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = (event) => {
@@ -68,7 +229,50 @@ function App() {
         });
     };
 
-    const addDocument = async () => {
+    const fetchDropboxUrl = async (documentHash, signer) => {
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+        const documentHashBytes = ethers.utils.arrayify(documentHash);
+        const dropboxUrl = await contract.getDocumentDropboxUrl(documentHashBytes);
+        console.log(dropboxUrl);
+        return dropboxUrl;
+    };
+
+
+    const fetchUnsignedDocuments = async (signer) => {
+        if (!signer) {
+            return;
+        }
+
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+        const unsignedDocs = await contract.getUnsignedDocuments(await signer.getAddress());
+        const unsignedDocsWithUrls = [];
+
+        for (const documentHash of unsignedDocs) {
+            const dropboxUrl = await fetchDropboxUrl(documentHash, signer);
+            console.log(dropboxUrl);
+            unsignedDocsWithUrls.push({documentHash, dropboxUrl});
+        }
+        setUnsignedDocuments(unsignedDocsWithUrls);
+    };
+
+    const fetchSignedDocuments = async (signer) => {
+        if (!signer) {
+            return;
+        }
+
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+        const signedDocs = await contract.getSignedDocuments(await signer.getAddress());
+        const signedDocsWithUrls = [];
+        for (const documentHash of signedDocs) {
+            const dropboxUrl = await fetchDropboxUrl(documentHash, signer);
+            console.log(dropboxUrl);
+            signedDocsWithUrls.push({documentHash, dropboxUrl});
+        }
+        setSignedDocuments(signedDocsWithUrls);
+    };
+
+
+    const saveDocument = async () => {
         if (!documentHash || !signersInput) {
             setStatusMessage("Ошибка: заполните все поля.");
             return;
@@ -80,7 +284,10 @@ function App() {
             const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
             const signersArray = signersInput.split(",").map((address) => address.trim());
             const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
-            await contract.addDocument(documentHashBytes, signersArray);
+            const fileUrl = await uploadFileToDropbox();
+
+            await contract.addDocument(documentHashBytes, fileUrl, signersArray);
+
             console.log("Документ успешно добавлен.");
             setStatusMessage("Документ успешно добавлен.");
         } catch (error) {
@@ -99,15 +306,39 @@ function App() {
             const provider = await web3ModalRef.current.connect();
             const signer = new ethers.providers.Web3Provider(provider).getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
-            // Преобразование строки хеша в массив байтов
             const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
-            await contract.signDocument(documentHashBytes);
+            // await contract.signDocument(documentHashBytes);
+
+            const tx = await contract.signDocument(documentHashBytes);
+            await provider.waitForTransaction(tx.hash, 6);
+
+            await fetchSignedDocuments(signer);
+            await fetchUnsignedDocuments(signer);
             setStatusMessage("Документ успешно подписан.");
         } catch (error) {
-            console.error("Ошибка при подписании документа:", error);
             setStatusMessage("Ошибка при подписании документа.");
         }
     };
+
+    const signUploadDocument = async (documentHashToSign) => {
+        if (!documentHashToSign) {
+            setStatusMessage("Пожалуйста, загрузите файл для вычисления хеша.");
+            return;
+        }
+        try {
+            const provider = await web3ModalRef.current.connect();
+            const signer = new ethers.providers.Web3Provider(provider).getSigner();
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+            const documentHashBytes = ethers.utils.arrayify(documentHashToSign);
+            await contract.signDocument(documentHashBytes);
+            await fetchSignedDocuments();
+            await fetchUnsignedDocuments();
+            setStatusMessage("Документ успешно подписан.");
+        } catch (error) {
+            setStatusMessage("Ошибка при подписании документа.");
+        }
+    };
+
 
     const getSignersStatus = async () => {
         if (!documentHash) {
@@ -119,83 +350,148 @@ function App() {
             const provider = new ethers.providers.Web3Provider(await web3ModalRef.current.connect());
             const signer = provider.getSigner(); // Получаем signer из provider
             const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer); // Используем signer вместо provider
-
-            // Преобразование строки хеша в массив байтов
             const documentHashBytes = ethers.utils.arrayify("0x" + documentHash);
-
             const [signers, signedStatus] = await contract.getSignersStatus(documentHashBytes);
-            console.log("Список подписантов:", signers);
-            console.log("Статус подписи:", signedStatus);
-
             const signersStatus = signers.map((signer, index) => {
                 return `${signer}: ${signedStatus[index] ? "Подписан" : "Не подписан"}`;
             });
             setStatusMessage(`Статус подписантов:\n${signersStatus.join("\n")}`);
+            if (signers.length > 0) {
+                setIsFileInBlockchain(true);
+            } else {
+                setIsFileInBlockchain(false);
+            }
         } catch (error) {
-            console.error("Ошибка при получении статуса подписантов:", error);
             setStatusMessage("Ошибка при получении статуса подписантов.");
         }
     };
 
+    useEffect(() => {
+        restoreDropboxSession();
+    }, []);
+
     return (
         <div className="container">
-            <h1 className="my-4 text-center">Document Signer</h1>
-            {!walletConnected && (
-                <button
-                    className="btn btn-primary"
-                    onClick={connectWallet}
-                >
-                    Подключить кошелек
-                </button>
-            )}
-            {walletConnected && (
-                <div className="card">
-                    <div className="card-body">
-                        <div className="mb-3">
-                            <label className="form-label">Выберите файл</label>
-                            <input
-                                className="form-control"
-                                type="file"
-                                onChange={handleFileChange}
-                            />
-                            <p>Хеш файла: {documentHash}</p>
-                        </div>
-                        <div className="mb-3">
-                            <label className="form-label">
-                                Введите адреса подписантов, разделенные запятыми
-                            </label>
-                            <input
-                                className="form-control"
-                                type="text"
-                                value={signersInput}
-                                onChange={handleSignersInputChange}
-                                placeholder="Введите адреса подписантов, разделенные запятыми"
-                            />
-                        </div>
-                        <button
-                            className="btn btn-primary me-2"
-                            onClick={addDocument}
-                        >
-                            Добавить документ
+            <div className="my-4 text-center d-flex justify-content-center">
+                <img src="/logo.png" alt="Логотип" style={{height: '240px', marginRight: '20px'}}/>
+            </div>
+            <div className="my-4 text-center">
+                <h1 className="d-inline align-middle">Document Signer</h1>
+            </div>
+            <div className="row">
+                {!isDropboxAuthorized && (
+                    <div className="text-center">
+                        <button className="btn btn-primary custom-button" onClick={handleDropboxAuth}>
+                            Авторизовать Dropbox
                         </button>
-                        <button
-                            className="btn btn-primary me-2"
-                            onClick={signDocument}
-                        >
-                            Подписать документ
-                        </button>
-                        <button
-                            className="btn btn-primary"
-                            onClick={getSignersStatus}
-                        >
-                            Получить статус подписантов
-                        </button>
-                        <p className="mt-3">{statusMessage}</p>
                     </div>
-                </div>
+                )}
+                {!walletConnected && (
+                    <div className="text-center mt-2">
+                        <button className="btn btn-primary custom-button" onClick={connectWallet}>
+                            Подключить кошелек
+                        </button>
+                    </div>
+                )}
+            </div>
+            {walletConnected && (
+                <>
+                    {/* Верхняя часть страницы: Неподписанные документы */}
+                    <div className="card bg-light mb-4">
+                        <div className="card-body">
+                            <h4>Неподписанные документы</h4>
+                            <ul>
+                                {unsignedDocuments.map(({documentHash, dropboxUrl}) => (
+                                    <li key={documentHash}>
+                                        {documentHash} -{" "}
+                                        <a href={dropboxUrl} target="_blank" rel="noopener noreferrer">
+                                            Просмотреть документ
+                                        </a>{" "}
+                                        <button
+                                            className="btn btn-primary custom-button me-2"
+                                            onClick={() => signDocument(documentHash)}
+                                        >
+                                            <FontAwesomeIcon icon={faFileSignature} className="me-2"/>
+                                            Подписать документ
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+
+                    {/* Средняя часть страницы: Загрузка, сохранение и подписание документов */}
+                    <div className="card bg-light mb-4">
+                        <div className="card-body">
+                            <div className="mb-3">
+                                <label className="form-label">Выберите файл</label>
+                                <input
+                                    className="form-control"
+                                    type="file"
+                                    onChange={handleFileChange}
+                                />
+                                <p>Хеш файла: {documentHash}</p>
+                                {fileUrl && (
+                                    <p>
+                                        Ссылка на файл в Dropbox:{" "}
+                                        <a href={fileUrl} target="_blank" rel="noopener noreferrer">
+                                            {fileUrl}
+                                        </a>
+                                    </p>
+                                )}
+                            </div>
+                            <div className="mb-3">
+                                <label className="form-label">
+                                    Введите адреса подписантов, разделенные запятыми
+                                </label>
+                                <input
+                                    className="form-control"
+                                    type="text"
+                                    value={signersInput}
+                                    onChange={handleSignersInputChange}
+                                    placeholder="Введите адреса подписантов, разделенные запятыми"
+                                    disabled={!isFileInBlockchain && !documentHash}
+                                />
+                            </div>
+                            <button
+                                className="btn btn-primary custom-button me-2"
+                                onClick={saveDocument}
+                                disabled={disableSaveButton}
+                            >
+                                Сохранить
+                            </button>
+                            <button
+                                className="btn btn-success custom-button me-2"
+                                onClick={signDocument}
+                            >
+                                <FontAwesomeIcon icon={faFileSignature} className="me-2"/>
+                                Подписать документ
+                            </button>
+                            <p className="mt-3">{statusMessage}</p>
+                        </div>
+                    </div>
+
+                    {/* Нижняя часть страницы: Подписанные документы */}
+                    <div className="card bg-light mb-4">
+                        <div className="card-body">
+                            <h4>Подписанные документы</h4>
+                            <ul>
+                                {signedDocuments.map(({documentHash, dropboxUrl}) => (
+                                    <li key={documentHash}>
+                                        {documentHash} -{" "}
+                                        <a href={dropboxUrl} target="_blank" rel="noopener noreferrer">
+                                            Просмотреть документ
+                                        </a>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+                </>
             )}
         </div>
     );
+
 }
 
 export default App;

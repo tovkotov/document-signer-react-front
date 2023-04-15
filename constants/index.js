@@ -1,4 +1,4 @@
-export const CONTRACT_ADDRESS = "0x619c279DF72C57A8D73753d0AD5825c25E07854B";
+export const CONTRACT_ADDRESS = "0x30Cb2a2bdc049183E1b5b016eEC18993cc4c05B8";
 export const abi = [
     {
         "inputs": [
@@ -6,6 +6,11 @@ export const abi = [
                 "internalType": "bytes32",
                 "name": "_documentHash",
                 "type": "bytes32"
+            },
+            {
+                "internalType": "string",
+                "name": "_dropboxUrl",
+                "type": "string"
             },
             {
                 "internalType": "address[]",
@@ -16,6 +21,25 @@ export const abi = [
         "name": "addDocument",
         "outputs": [],
         "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "name": "documentHashes",
+        "outputs": [
+            {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+            }
+        ],
+        "stateMutability": "view",
         "type": "function"
     },
     {
@@ -32,6 +56,49 @@ export const abi = [
                 "internalType": "bytes32",
                 "name": "documentHash",
                 "type": "bytes32"
+            },
+            {
+                "internalType": "string",
+                "name": "dropboxUrl",
+                "type": "string"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "bytes32",
+                "name": "_documentHash",
+                "type": "bytes32"
+            }
+        ],
+        "name": "getDocumentDropboxUrl",
+        "outputs": [
+            {
+                "internalType": "string",
+                "name": "",
+                "type": "string"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "_signer",
+                "type": "address"
+            }
+        ],
+        "name": "getSignedDocuments",
+        "outputs": [
+            {
+                "internalType": "bytes32[]",
+                "name": "",
+                "type": "bytes32[]"
             }
         ],
         "stateMutability": "view",
@@ -56,6 +123,25 @@ export const abi = [
                 "internalType": "bool[]",
                 "name": "",
                 "type": "bool[]"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "_signer",
+                "type": "address"
+            }
+        ],
+        "name": "getUnsignedDocuments",
+        "outputs": [
+            {
+                "internalType": "bytes32[]",
+                "name": "",
+                "type": "bytes32[]"
             }
         ],
         "stateMutability": "view",
