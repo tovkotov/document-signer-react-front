@@ -6,6 +6,8 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import CryptoJS from "crypto-js";
 import {Dropbox} from "dropbox";
 import {useRouter} from 'next/router';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faFileSignature, faFileUpload, faSignInAlt, faSignOutAlt, faLink, faPlus } from '@fortawesome/free-solid-svg-icons';
 
 function App() {
     const [walletConnected, setWalletConnected] = useState(false);
@@ -371,21 +373,22 @@ function App() {
     return (
         <div className="container">
             <h1 className="my-4 text-center">Document Signer</h1>
-            {!isDropboxAuthorized && (
-                <button className="btn btn-primary custom-button" onClick={handleDropboxAuth}>
-                    Авторизовать Dropbox
-                </button>
-            )}
-            {!walletConnected && (
-                <button className="btn btn-primary custom-button" onClick={connectWallet}>
-                    Подключить кошелек
-                </button>
-            )}
-
+            <div className="row">
+                {!isDropboxAuthorized && (
+                    <button className="btn btn-primary custom-button" onClick={handleDropboxAuth}>
+                        Авторизовать Dropbox
+                    </button>
+                )}
+                {!walletConnected && (
+                    <button className="btn btn-primary custom-button" onClick={connectWallet}>
+                        Подключить кошелек
+                    </button>
+                )}
+            </div>
             {walletConnected && (
-                <div className="container">
+                <>
                     {/* Верхняя часть страницы: Неподписанные документы */}
-                    <div>
+                    <div className="mb-4">
                         <h2>Неподписанные документы</h2>
                         <ul>
                             {unsignedDocuments.map(({ documentHash, dropboxUrl }) => (
@@ -394,14 +397,20 @@ function App() {
                                     <a href={dropboxUrl} target="_blank" rel="noopener noreferrer">
                                         Просмотреть документ
                                     </a>{" "}
-                                    <button onClick={() => signUploadDocument(documentHash)}>Подписать документ</button>
+                                    <button
+                                        className="btn btn-primary custom-button me-2"
+                                        onClick={signDocument}
+                                    >
+                                        <FontAwesomeIcon icon={faFileSignature} className="me-2" />
+                                        Подписать документ
+                                    </button>
                                 </li>
                             ))}
                         </ul>
                     </div>
 
                     {/* Средняя часть страницы: Загрузка, сохранение и подписание документов */}
-                    <div className="card custom-card">
+                    <div className="card custom-card mb-4">
                         <div className="card-body">
                             <div className="mb-3">
                                 <label className="form-label">Выберите файл</label>
@@ -441,9 +450,10 @@ function App() {
                                 Сохранить
                             </button>
                             <button
-                                className="btn btn-primary custom-button me-2"
+                                className="btn btn-success custom-button me-2"
                                 onClick={signDocument}
                             >
+                                <FontAwesomeIcon icon={faFileSignature} className="me-2" />
                                 Подписать документ
                             </button>
                             <p className="mt-3">{statusMessage}</p>
@@ -464,10 +474,11 @@ function App() {
                             ))}
                         </ul>
                     </div>
-                </div>
+                </>
             )}
         </div>
     );
-}
+
+                            }
 
 export default App;
