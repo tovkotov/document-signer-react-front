@@ -111,6 +111,14 @@ function App() {
         window.location.href = `${dropboxAuthUrl}?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
     };
 
+    const restoreDropboxSession = () => {
+        const savedToken = localStorage.getItem("dropboxAccessToken");
+        if (savedToken) {
+            setDropboxAccessToken(savedToken);
+            setIsDropboxAuthorized(true);
+        }
+    };
+
     const handleDropboxOAuthResponse = async () => {
         const searchParams = new URLSearchParams(window.location.search);
         const code = searchParams.get("code");
@@ -123,6 +131,7 @@ function App() {
                     console.error("Упс: ", data.error, data.error_description);
                 } else {
                     setDropboxAccessToken(data.accessToken);
+                    localStorage.setItem("dropboxAccessToken", data.accessToken);
                     setIsDropboxAuthorized(true);
                 }
             } catch (error) {
@@ -355,6 +364,10 @@ function App() {
             setStatusMessage("Ошибка при получении статуса подписантов.");
         }
     };
+
+    useEffect(() => {
+        restoreDropboxSession();
+    }, []);
 
     return (
         <div className="container">
