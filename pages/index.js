@@ -350,6 +350,15 @@ function App() {
             <div className="my-4 text-center">
                 <h1 className="d-inline align-middle">Document Signer</h1>
             </div>
+            {!walletConnected && !isDropboxAuthorized && (
+                <div className="my-4 text-center">
+                    <p>
+                        Document Signer - это приложение для подписи и хранения документов с использованием
+                        смарт-контрактов на блокчейне Ethereum и интеграции с Dropbox. Авторизуйтесь через Dropbox и
+                        подключите кошелек для начала работы.
+                    </p>
+                </div>
+            )}
             <div className="row">
                 {!isDropboxAuthorized && (
                     <div className="text-center">
@@ -402,6 +411,17 @@ function App() {
                                     type="file"
                                     onChange={handleFileChange}
                                 />
+                                <p>Хеш файла: {documentHash}</p>
+                                {fileUrl && (
+                                    <p>
+                                        Ссылка на файл в Dropbox:{" "}
+                                        <a href={fileUrl} target="_blank" rel="noopener noreferrer">
+                                            {fileUrl}
+                                        </a>
+                                    </p>
+                                )}
+                            </div>
+                            <div className="mb-3">
                                 <p>Хеш файла: {documentHash}</p>
                                 {fileUrl && (
                                     <p>
